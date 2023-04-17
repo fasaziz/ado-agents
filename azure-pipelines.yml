@@ -1,0 +1,119 @@
+name: $(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  tags:
+    include:
+    - 'refs/tags/uk-*'
+    - 'refs/tags/us-*'
+    - 'refs/tags/es-*'
+    - 'refs/tags/env-uk-*'
+    - 'refs/tags/env-us-*'
+    - 'refs/tags/env-es-*'
+    - 'refs/tags/infra-uk-*'
+    - 'refs/tags/infra-us-*'
+    - 'refs/tags/infra-es-*'
+    - 'refs/tags/dev-uk-*'
+    - 'refs/tags/pre-uk-*'
+    - 'refs/tags/pro-uk-*'
+    - 'refs/tags/dev-us-*'
+    - 'refs/tags/pre-us-*'
+    - 'refs/tags/pro-us-*'
+    - 'refs/tags/dev-es-*'
+    - 'refs/tags/pre-es-*'
+    - 'refs/tags/pro-es-*'
+    - 'refs/tags/WW-*'
+
+pool: 'Docker Build Pool'
+
+variables:
+- name: countryCode
+  ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/es-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/infra-es-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/env-es-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/dev-es'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pre-es'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pro-es')) }}:
+    value: ES
+  ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/us-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/infra-us-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/env-us-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/dev-us'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pre-us'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pro-us')) }}:
+    value: US
+  ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/uk-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/infra-uk-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/env-uk-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/dev-uk'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pre-uk'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pro-uk')) }}:
+    value: UK
+  ${{ if startsWith(variables['Build.SourceBranch'], 'refs/tags/ww-') }}:
+    value: WW
+- group: Universal
+- name: ProjectName
+  value: $(Build.Repository.Name)
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: DevOps/ADO-Deploy-Tools
+      
+stages :
+  - stage: Docker #Needs some more work around this pipeline - checkng if anything in src directory has changed etc
+    jobs:
+      - job: Build_Docker
+        steps:
+                - checkout: self
+                - task: Docker@2
+                  displayName: Login to ACR
+                  inputs:
+                    command: login
+                    containerRegistry: ACR CapitalOnTap
+                - task: Docker@2
+                  displayName: Build and push
+                  inputs:
+                    command: buildAndPush
+                    Dockerfile: ./dockerfile
+                    repository: $(ProjectName)
+                    tags: $(build.buildid)
+                - task: Docker@2
+                  displayName: Logout of ACR
+                  inputs:
+                    command: logout
+                    containerRegistry: ACR CapitalOnTap
+
+  - ${{ if and(not(startsWith(variables['Build.SourceBranch'], 'refs/tags/ww-')), not(startsWith(variables['Build.SourceBranch'], 'refs/tags/infra-'))) }}:
+    - ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/env-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/dev-')) }}:
+      - stage: Dev_${{ variables.countryCode }}
+        displayName: Dev ${{ variables.countryCode }}
+        jobs:
+          - template: deploy-to-kubernetes-new.yml@templates
+            parameters:
+              environment: Development
+              country_code: ${{ variables.countryCode }}
+              project_name: $(ProjectName)
+              kustomize_deployment: true
+              follow_deployment: true
+
+    - ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/env-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pre-')) }}:
+      - stage: Pre_${{ variables.countryCode }}
+        displayName: Pre ${{ variables.countryCode }}
+        jobs:
+          - template: deploy-to-kubernetes-new.yml@templates
+            parameters:
+              environment: Preproduction
+              country_code: ${{ variables.countryCode }}
+              project_name: $(ProjectName)
+              kustomize_deployment: true
+              follow_deployment: true
+
+    - ${{ if or(startsWith(variables['Build.SourceBranch'], 'refs/tags/env-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/pro-')) }}:
+      - stage: Pro_${{ variables.countryCode }}
+        displayName: Pro ${{ variables.countryCode }}
+        jobs:
+          - template: deploy-to-kubernetes-new.yml@templates
+            parameters:
+              environment: Production
+              country_code: ${{ variables.countryCode }}
+              project_name: $(ProjectName)
+              kustomize_deployment: true
+              follow_deployment: true
+
+  - ${{ if and(not(startsWith(variables['Build.SourceBranch'], 'refs/tags/env-')), not(startsWith(variables['Build.SourceBranch'], 'refs/tags/dev-')), not(startsWith(variables['Build.SourceBranch'], 'refs/tags/pre-')), not(startsWith(variables['Build.SourceBranch'], 'refs/tags/pro-'))) }}:
+    - stage: Infra_${{ variables.countryCode }}
+      displayName: Infrastructure ${{ variables.countryCode }}
+      jobs:
+        - template: deploy-to-kubernetes-new.yml@templates
+          parameters:
+            environment: Infrastructure
+            country_code: ${{ variables.countryCode }}
+            project_name: $(ProjectName)
+            kustomize_deployment: true
+            follow_deployment: true
