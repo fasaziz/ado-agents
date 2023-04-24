@@ -15,17 +15,27 @@ spec:
       name: ${ProjectName}
     spec:
       nodeSelector:
-          agentpool: agentpool
+        agentpool: linuxpool
       restartPolicy: "Always"
       volumes:
       - name: dind-storage
         emptyDir: {}
+      - name: yarn-cache
+        persistentVolumeClaim:
+          claimName: ${ProjectName}-yarn-cache-pvc
       containers:
       - name: ${ProjectName}
         image: capitalontap.azurecr.io/${ProjectName}:${build.buildid}
         imagePullPolicy: IfNotPresent
         securityContext:
           privileged: true
+        resources:
+          limits:
+            cpu: 2
+            memory: 3Gi
+          requests:
+            cpu: 1
+            memory: 2Gi
         env:
           - name: AZP_URL
             valueFrom:
@@ -44,4 +54,5 @@ spec:
         volumeMounts:
         - name: dind-storage
           mountPath: /var/lib/docker
-      #restartPolicy: Always
+        - name: yarn-cache
+          mountPath: /usr/local/share/.cache/yarn/v4
